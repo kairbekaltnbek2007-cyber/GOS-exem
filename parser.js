@@ -8,6 +8,15 @@ KEYH=/^\s*(ответы|ключи?|answers?|keys?|жауаптар|кілт)\s*
 KEYP='(\\d+)\\s*[.\\-\u2013:)]?\\s*('+L+')(?![A-Za-z\u0400-\u04FF])';
 const nz=c=>({'\u0410':'A','\u0412':'B','\u0421':'C','\u0415':'E'})[c]||c;
 function parse(lines){
+ const flat=lines.map(l=>(l.t||'').trim()).filter(Boolean);
+ if(flat.length>=6&&flat.length%6===0&&flat.filter(t=>OPT.test(t)).length<flat.length*.1){
+  const out=[];
+  for(let g=0;g<flat.length;g+=6){
+   const stars=[],opts=flat.slice(g+1,g+6).map((t,j)=>{if(/^[*+]|\*$/.test(t))stars.push(j);return t.replace(/^[*+]\s*|\s*\*$/g,'')});
+   const c=stars.length===1?stars[0]:null,issues=[];
+   if(c===null)issues.push(stars.length?'Отмечено несколько правильных ответов — оставьте один':'Правильный ответ не найден — отметьте его вручную');
+   out.push({text:flat[g].replace(/^\d{1,4}\s*[.)]\s+/,''),options:opts,correct:c,issues})}
+  return out}
  const qs=[];let cur=null,inKey=false;const keys={};
  const mk=t=>({text:t,options:[],marks:[],stars:[],bold:[]});
  for(const ln of lines){
