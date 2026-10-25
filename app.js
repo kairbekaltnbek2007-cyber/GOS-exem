@@ -3,7 +3,8 @@ const LET=['А','В','С','Д','Е'],fmt=s=>[s/3600|0,(s%3600)/60|0,Math.round(s
 const app=$('#app');let sb,user,draft,run,timer,admin,fix;
 const toast=m=>{const e=document.createElement('div');e.className='toast';e.textContent=m;document.body.append(e);setTimeout(()=>e.remove(),3500)};
 const ask=m=>new Promise(r=>{const w=document.createElement('div');w.className='modal';w.innerHTML=`<div class="box card"><p>${esc(m)}</p><div class="row"><button class="btn ghost" data-v="0">Отмена</button><button class="btn" data-v="1">Да</button></div></div>`;w.onclick=e=>{const v=e.target.dataset.v;if(v!==undefined){w.remove();r(v==='1')}};document.body.append(w)});
-const NAV=[['home','🏠','Главная'],['tests','📚','Тесты'],['upload','📤','Загрузить тест'],['results','📊','Мои результаты'],['profile','👤','Профиль']];
+const ic=p=>`<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+const NAV=[['home',ic('<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/><path d="M10 19.5v-5a2 2 0 0 1 4 0v5"/>'),'Дом'],['tests',ic('<rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9 8h6M9 12h6M9 16h3"/>'),'Тест'],['upload',ic('<path d="M7.5 18.5h-1a4.5 4.5 0 0 1-.5-8.97 6 6 0 0 1 11.6-1.2 4.6 4.6 0 0 1-.1 10.17h-1"/><path d="M12 20.5V12m0 0-3 3m3-3 3 3"/>'),'Загрузка теста'],['results',ic('<path d="M5 20v-5M10 20V9M15 20v-8M20 20V5"/>'),'Результаты'],['profile',ic('<circle cx="12" cy="8" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/>'),'Профиль']];
 async function boot(){
  if(!window.CFG||CFG.url.startsWith('ВСТАВ')){app.innerHTML='<div class="auth card"><h2>Нужно подключить Supabase</h2><p>Вставьте адрес и ключ проекта в файл config.js.</p></div>';return}
  sb=supabase.createClient(CFG.url,CFG.key);
