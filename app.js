@@ -13,11 +13,11 @@ async function boot(){
  addEventListener('hashchange',route);route()}
 async function route(){
  clearInterval(timer);if(!user)return authView(false);
- if(admin===undefined){const r=await sb.from('admins').select('user_id').maybeSingle();admin=!!r.data}
- const [p,id,mode]=(location.hash.slice(1)||'home').split('/');
- const V={home:vHome,tests:vTests,upload:admin?draw:vHome,results:vResults,profile:vProfile,run:vRun,result:vResult,errors:vErrors,mock:vMock,mockrun:vMockRun};
+ if(admin===undefined){const r=await sb.from('profiles').select('role').eq('id',user.id).maybeSingle();admin=!!(r.data&&r.data.role==='admin')}
+ const [p,id,mode]=(location.hash.slice(1)||'home').split('/');touch();{const um=$('#um');if(um)um.remove()}if(liveT&&p!=='run'&&p!=='mockrun')liveEnd();clearInterval(adminT);if(AD.ch){try{sb.removeChannel(AD.ch)}catch(e){}AD.ch=null}
+ const V={home:vHome,tests:vTests,upload:admin?draw:vHome,results:vResults,profile:vProfile,run:vRun,result:vResult,errors:vErrors,mock:vMock,mockrun:vMockRun,admin:vAdmin};
  shell(p);try{await(V[p]||vHome)(id,mode)}catch(e){$('#main').innerHTML=`<div class="card err">Ошибка: ${esc(e.message)}</div>`}}
-function shell(p){const a={run:'tests',result:'results',errors:'results',mock:'tests',mockrun:'tests'}[p]||p;
+function shell(p){const a={run:'tests',result:'results',errors:'results',mock:'tests',mockrun:'tests',admin:'profile'}[p]||p;
  app.innerHTML=`<aside><div class="logo">🩺 <b>ГОС экзамен</b></div><nav>${NAV.filter(x=>admin||x[0]!=='upload').map(([h,i,t])=>`<a href="#${h}" class="${h===a?'on':''}"><span>${i}</span><em>${t}</em></a>`).join('')}</nav></aside><main id="main"></main>`;}
 function authView(reg){
  app.innerHTML=`<div class="auth card"><h2>🩺 ГОС экзамен</h2>${reg?'<input id="n" placeholder="Имя и фамилия"><input id="g" placeholder="Группа">':''}<input id="e" type="email" placeholder="Email"><input id="p" type="password" placeholder="Пароль (от 6 символов)"><button class="btn" id="go">${reg?'Зарегистрироваться':'Войти'}</button><a id="sw">${reg?'Уже есть аккаунт? Войти':'Нет аккаунта? Регистрация'}</a><p id="msg" class="err"></p></div>`;
@@ -26,7 +26,7 @@ function authView(reg){
   const r=reg?await sb.auth.signUp({email:e,password:p,options:{data:{full_name:$('#n').value.trim(),group:$('#g').value.trim()}}}):await sb.auth.signInWithPassword({email:e,password:p});
   if(r.error)$('#msg').textContent=r.error.message;else if(reg&&!r.data.session)$('#msg').textContent='Подтвердите email по письму, затем войдите.'}}
 async function vHome(){
- const [t,a]=await Promise.all([sb.from('tests').select('id'),sb.from('attempts').select('*,tests(title)').order('created_at',{ascending:false})]);
+ const [t,a]=await Promise.all([sb.from('tests').select('id'),sb.from('attempts').select('*,tests(title)').eq('user_id',user.id).order('created_at',{ascending:false})]);
  if(t.error||a.error)throw(t.error||a.error);
  const A=a.data,avg=A.length?Math.round(A.reduce((s,x)=>s+x.percent,0)/A.length):0,tm=A.reduce((s,x)=>s+x.seconds,0);
  const ach=[[A.length>=1,'🥇','Первый тест'],[A.length>=3,'🏅','Активный студент'],[A.some(x=>x.percent>=90),'🏆','Отличник (90%+)']].filter(x=>x[0]);
@@ -70,7 +70,7 @@ async function save(){
 const SZ=200,MOCK_SEC=45;
 async function getQIds(tids){let all=[],a=0;for(;;){let q=sb.from('questions').select('id,test_id').order('id').range(a,a+999);if(tids)q=q.in('test_id',tids);const r=await q;if(r.error)throw r.error;all=all.concat(r.data);if(r.data.length<1000)break;a+=1000}return all}
 async function getQsByIds(ids){let o=[];for(let a=0;a<ids.length;a+=100){const r=await sb.from('questions').select('*').in('id',ids.slice(a,a+100));if(r.error)throw r.error;o=o.concat(r.data)}const M=Object.fromEntries(o.map(x=>[x.id,x]));return ids.map(i=>M[i]||{id:i,test_id:null,text:'(вопрос удалён)',options:['—'],correct:0})}
-async function mockPool(src){if(src!=='done')return getQIds();const r=await sb.from('attempts').select('test_id');if(r.error)throw r.error;const t=[...new Set((r.data||[]).map(x=>x.test_id).filter(Boolean))];return t.length?getQIds(t):[]}
+async function mockPool(src){if(src!=='done')return getQIds();const r=await sb.from('attempts').select('test_id').eq('user_id',user.id);if(r.error)throw r.error;const t=[...new Set((r.data||[]).map(x=>x.test_id).filter(Boolean))];return t.length?getQIds(t):[]}
 async function vMock(cs,src){
  const count=+cs||50,sc=src==='done'?'done':'all',pool=await mockPool(sc),n=pool.length,c=Math.min(count,n),min=Math.round(c*MOCK_SEC/60),ch=(h,t,on)=>`<a class="btn ${on?'':'ghost'}" href="${h}">${t}</a>`;
  $('#main').innerHTML=`<h1>Пробный экзамен</h1><div class="card"><p>Система случайно выберет вопросы ${sc==='done'?'из пройденных вами тестов':'из всех тестов'} и включит жёсткий таймер. Подсказок нет: правильные ответы видны только после завершения. Когда время выйдет, экзамен завершится сам.</p><p class="mut">Сколько вопросов:</p><div class="row" style="justify-content:flex-start">${[50,100].map(x=>ch(`#mock/${x}/${sc}`,x,count===x)).join('')}</div><p class="mut">Откуда брать вопросы:</p><div class="row" style="justify-content:flex-start">${ch(`#mock/${count}/all`,'Все тесты',sc==='all')}${ch(`#mock/${count}/done`,'Только пройденные',sc==='done')}</div>${n?`<p><b>${c} вопросов · ${min} мин</b>${c<count?`<small>В выбранном наборе всего ${n} вопросов.</small>`:''}</p><a class="btn" href="#mockrun/${count}/${sc}">Начать пробный экзамен</a>`:`<p class="err">Нет вопросов для экзамена. ${sc==='done'?'Сначала пройдите хотя бы один тест или выберите «Все тесты».':'Тесты ещё не добавлены.'}</p>`}</div>`}
@@ -85,7 +85,7 @@ async function vMockRun(cs,src){
 async function getQs(id){let all=[],a=0;for(;;){const r=await sb.from('questions').select('*').eq('test_id',id).order('pos').range(a,a+999);if(r.error)throw r.error;all=all.concat(r.data);if(r.data.length<1000)break;a+=1000}return{data:all,error:null}}
 async function vRun(id,mode0){
  const [mode,rest='']=(mode0||'').split('@'),[pt,cnt]=rest.split('~'),part=+pt||0,count=+cnt||0;
- const [t,q,m,at]=await Promise.all([sb.from('tests').select('title').eq('id',id).single(),getQs(id),sb.from('mistakes').select('question_id,status').eq('test_id',id),sb.from('attempts').select('qids').eq('test_id',id)]);
+ const [t,q,m,at]=await Promise.all([sb.from('tests').select('title').eq('id',id).single(),getQs(id),sb.from('mistakes').select('question_id,status').eq('test_id',id).eq('user_id',user.id),sb.from('attempts').select('qids').eq('test_id',id).eq('user_id',user.id)]);
  if(t.error||q.error)throw(t.error||q.error);if(!q.data.length)throw Error('В тесте нет вопросов');
  const open=new Set((m.data||[]).filter(x=>x.status==='open').map(x=>x.question_id)),err=/^(e|(exam|train)-e)$/.test(mode||''),base=err?(mode==='e'?'':mode.slice(0,-2)):mode;
  const n=q.data.length,blocks=Math.ceil(n/SZ),blk=k=>q.data.slice((k-1)*SZ,k*SZ),A=(at.data||[]).map(a=>new Set(a.qids||[])),isDone=k=>A.some(z=>blk(k).every(x=>z.has(x.id)));
@@ -101,7 +101,11 @@ async function vRun(id,mode0){
  run=resume?{...s,flag:new Set(s.flag)}:{qids,ans:{},flag:new Set(),lock:{},i:0,t0:Date.now(),qt0:Date.now()};
  Object.assign(run,{id,key,mode:base,title:t.data.title+(part&&!err?` · вопросы ${(part-1)*SZ+1}–${Math.min(part*SZ,n)}`:'')+(!err&&qs.length<pool.length?` · ${qs.length} из ${pool.length}`:''),qs,done:false});rdr()}
 const persist=()=>{try{const r=run;localStorage.setItem(r.key,JSON.stringify({qids:r.qids,ans:r.ans,flag:[...r.flag],lock:r.lock,i:r.i,t0:r.t0,qt0:r.qt0,nx:r.nx,dl:r.dl,mock:r.mode==='mock'?1:0}))}catch(e){}};
-function rdr(){run.mode==='train'?rdrTrain():rdrExam()}
+let liveT,liveLast={i:-1,t:0},lastTouch=0,adminT;const AD={rows:[],live:[],sort:'avg_percent',dir:-1,q:'',all:false,ch:null};
+function touch(){const n=Date.now();if(n-lastTouch<60000)return;lastTouch=n;sb.from('profiles').update({last_active_at:new Date().toISOString()}).eq('id',user.id).then(()=>{},()=>{})}
+function live(){const r=run;if(!r||!user)return;const n=Date.now();if(liveT&&liveLast.i===r.i&&n-liveLast.t<20000)return;liveLast={i:r.i,t:n};sb.from('live_sessions').upsert({user_id:user.id,test_title:r.title,mode:r.mode,q_index:r.i+1,q_total:r.qs.length,updated_at:new Date().toISOString()},{onConflict:'user_id'}).then(()=>{},()=>{});if(!liveT)liveT=setInterval(()=>{liveLast.t=0;live()},30000)}
+function liveEnd(){if(liveT){clearInterval(liveT);liveT=null}liveLast={i:-1,t:0};if(user)sb.from('live_sessions').delete().eq('user_id',user.id).then(()=>{},()=>{})}
+function rdr(){run.mode==='train'?rdrTrain():rdrExam();live()}
 function rdrExam(){
  const r=run,q=r.qs[r.i],n=r.qs.length,done=Object.keys(r.ans).length;
  $('#main').innerHTML=`<div class="runhead"><div><h1>${esc(r.title)}</h1></div><div class="grp"><span class="pill big" id="tm">00:00:00</span><button class="btn" id="fin">Завершить</button></div></div><div class="bar"><i style="width:${done/n*100}%"></i></div><small>Отвечено ${done} из ${n} · ${Math.round(done/n*100)}%</small>
@@ -112,11 +116,11 @@ function rdrExam(){
   if(d.a!==undefined)r.ans[r.i]=+d.a;else if(d.g!==undefined)r.i=+d.g;else if(d.nav)r.i+=+d.nav;else if(d.fl)r.flag.has(r.i)?r.flag.delete(r.i):r.flag.add(r.i);else if(b.id==='fin')return finish();else return;persist();rdr()}}
 async function finish(silent){
  const r=run;if(!r||r.done)return;const n=r.qs.length,done=Object.keys(r.ans).length;if(!silent&&done<n&&!await ask(`Вы ответили на ${done} из ${n}. Завершить тест?`))return;
- r.done=true;clearInterval(timer);
+ r.done=true;clearInterval(timer);liveEnd();
  const ok=r.qs.map((q,k)=>r.ans[k]===q.correct),c=ok.filter(Boolean).length;
  const {data,error}=await sb.from('attempts').insert({test_id:r.id||null,title:r.title,mode:r.mode,qids:r.qids,answers:r.ans,correct_count:c,total:n,percent:Math.round(c/n*100),seconds:Math.round((Math.min(Date.now(),r.mode==='mock'?r.dl:Infinity)-r.t0)/1000)}).select().single();
  if(error){r.done=false;if(r.mode==='train'){r.nx=Date.now()+5000;timer=setInterval(()=>{if(Date.now()>=r.nx){clearInterval(timer);finish(true)}},1000)}return toast('Не удалось сохранить результат: '+error.message)}
- const {data:ex}=await(r.id?sb.from('mistakes').select('question_id,status,wrong_count').eq('test_id',r.id):sb.from('mistakes').select('question_id,status,wrong_count').in('question_id',r.qids)),E=Object.fromEntries((ex||[]).map(x=>[x.question_id,x])),now=new Date().toISOString();
+ const {data:ex}=await(r.id?sb.from('mistakes').select('question_id,status,wrong_count').eq('user_id',user.id).eq('test_id',r.id):sb.from('mistakes').select('question_id,status,wrong_count').eq('user_id',user.id).in('question_id',r.qids)),E=Object.fromEntries((ex||[]).map(x=>[x.question_id,x])),now=new Date().toISOString();
  const rows=r.qs.flatMap((q,k)=>{const e=E[q.id],b={user_id:user.id,test_id:q.test_id,question_id:q.id,updated_at:now};
   if(!ok[k])return[{...b,status:'open',wrong_count:(e?e.wrong_count:0)+1}];
   return e&&e.status==='open'?[{...b,status:'fixed',wrong_count:e.wrong_count}]:[]});
@@ -128,19 +132,59 @@ async function vResult(id){
  if(a.qids&&a.test_id){const M=Object.fromEntries(qs.map(q=>[q.id,q]));qs=a.qids.map(i=>M[i]||{text:'(вопрос удалён)',options:['—'],correct:0})}
  $('#main').innerHTML=`<h1>${esc(a.tests?a.tests.title:(a.title||'Пробный экзамен'))}</h1><small>${a.mode==='train'?'Режим: тренировка':a.mode==='mock'?'Режим: пробный экзамен':'Режим: экзамен'}</small><div class="grid4"><div class="card stat"><small>Результат</small><b>${a.percent}%</b></div><div class="card stat"><small>Правильно</small><b class="g">${a.correct_count}</b></div><div class="card stat"><small>Неправильно / пропущено</small><b class="r">${a.total-a.correct_count}</b></div><div class="card stat"><small>Время</small><b>${fmt(a.seconds)}</b></div></div><div class="row"><a class="btn" href="${a.test_id?'#run/'+a.test_id:'#mock'}">${a.test_id?'Пройти повторно':'Новый пробный экзамен'}</a>${a.correct_count<a.total?`<a class="btn" href="#errors">Работа над ошибками</a>`:''}<a class="btn ghost" href="#results">Все результаты</a></div>${qs.map((q,k)=>{const y=a.answers[k];return `<div class="card q ${y===q.correct?'good':'bad'}"><b>${k+1}. ${esc(q.text)}</b><small>Ваш ответ: ${y===undefined?'нет ответа':LET[y]+') '+esc(q.options[y])}</small>${y===q.correct?'':`<small>Правильный: ${LET[q.correct]}) ${esc(q.options[q.correct])}</small>`}</div>`}).join('')}`}
 const tabs=a=>`<div class="row" style="justify-content:flex-start"><a class="btn ${a==='r'?'':'ghost'}" href="#results">Результаты</a><a class="btn ${a==='e'?'':'ghost'}" href="#errors">Работа над ошибками</a></div>`;
+const MODE={exam:'Экзамен',train:'Тренировка',mock:'Пробный экзамен'};
+const dtm=d=>d?new Date(d).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
+const msec=s=>s?Math.floor(s/60)+' мин '+String(Math.round(s)%60).padStart(2,'0')+' с':'—';
+async function loadLive(){const c=new Date(Date.now()-300000).toISOString(),r=await sb.from('live_sessions').select('*').gte('updated_at',c).order('updated_at',{ascending:false});AD.live=r.data||[]}
+async function adminLoad(){const r=await sb.rpc('admin_rating');if(r.error)throw r.error;AD.rows=r.data||[];await loadLive()}
+async function vAdmin(){
+ if(!admin){location.hash='#home';return}
+ await adminLoad();adminDraw();
+ adminT=setInterval(async()=>{if(!$('#adm'))return;await loadLive();drawLive()},15000);
+ try{AD.ch=sb.channel('live-sessions').on('postgres_changes',{event:'*',schema:'public',table:'live_sessions'},async()=>{await loadLive();drawLive()}).subscribe()}catch(e){}}
+function adminRows(){
+ const q=AD.q.trim().toLowerCase(),base=AD.rows.filter(x=>AD.all||x.user_role!=='admin');
+ const rank=new Map(base.filter(x=>x.attempts_total>0).sort((a,b)=>b.avg_percent-a.avg_percent||b.attempts_total-a.attempts_total).map((x,i)=>[x.uid,i+1]));
+ const k=AD.sort,v=x=>k==='full_name'?(x.full_name||x.mail||'').toLowerCase():k==='rank'?(rank.get(x.uid)||1e9):k==='last_active'?(x.last_active?Date.parse(x.last_active):0):+x[k]||0;
+ return base.filter(x=>!q||(x.full_name||'').toLowerCase().includes(q)||(x.mail||'').toLowerCase().includes(q)).map(x=>({...x,rank:rank.get(x.uid)})).sort((a,b)=>(v(a)>v(b)?1:v(a)<v(b)?-1:0)*AD.dir)}
+function adminDraw(){
+ $('#main').innerHTML=`<div id="adm"><h1>Кабинет администратора</h1><div class="card"><h3>🟢 Сейчас проходят тесты <span id="lc"></span></h3><div id="live"></div></div><div class="card"><div class="row"><h3 style="margin:0">Рейтинг студентов</h3><label class="mut"><input type="checkbox" id="aall" ${AD.all?'checked':''} style="width:auto"> включая админов</label></div><input id="aq" placeholder="Поиск по имени или email" value="${esc(AD.q)}"><div id="alist"></div></div></div>`;
+ drawLive();drawList();$('#aq').oninput=e=>{AD.q=e.target.value;drawList()};$('#aall').onchange=e=>{AD.all=e.target.checked;drawList()}}
+function drawLive(){const el=$('#live');if(!el)return;const nm=id=>{const r=AD.rows.find(x=>x.uid===id);return r?(r.full_name||r.mail):'Студент'};
+ $('#lc').textContent='· '+AD.live.length;
+ el.innerHTML=AD.live.map(s=>`<div class="item"><div><b><span class="dot"></span>${esc(nm(s.user_id))}</b><small>${esc(s.test_title||'')} · вопрос ${s.q_index} из ${s.q_total}</small></div><span class="pill">В процессе · ${MODE[s.mode]||esc(s.mode)}</span></div>`).join('')||'<p class="mut">Сейчас никто не проходит тест.</p>'}
+function drawList(){
+ const R=adminRows(),th=(k,t)=>`<th data-s="${k}">${t}${AD.sort===k?(AD.dir>0?' ▲':' ▼'):''}</th>`,nm=x=>esc(x.full_name||x.mail||'—'),bd=x=>x.user_role==='admin'?' <span class="pill">админ</span>':'';
+ $('#alist').innerHTML=R.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr>${th('rank','#')}${th('full_name','Студент')}${th('avg_percent','Средний балл')}${th('avg_seconds','Ср. время')}${th('attempts_total','Тестов')}${th('last_active','Последняя активность')}<th></th></tr></thead><tbody>${R.map(x=>`<tr><td>${x.rank?'#'+x.rank:'—'}</td><td><b>${nm(x)}</b>${bd(x)}<small>${esc(x.mail)}</small></td><td>${x.attempts_total?x.avg_percent+'%':'—'}</td><td>${x.attempts_total?msec(x.avg_seconds):'—'}</td><td>${x.attempts_total} / ${x.tests_unique}<small>попыток / тестов</small></td><td>${dtm(x.last_active)}</td><td><button class="btn ghost" data-u="${x.uid}">Управление</button></td></tr>`).join('')}</tbody></table></div><div class="acards">${R.map(x=>`<div class="card"><div class="row"><div><b>${x.rank?'#'+x.rank+' ':''}${nm(x)}</b>${bd(x)}<small>${esc(x.mail)}</small></div><span class="pill ${x.avg_percent>=75?'okp':'wp'}">${x.attempts_total?x.avg_percent+'%':'—'}</span></div><small>Ср. время: ${x.attempts_total?msec(x.avg_seconds):'—'} · Попыток: ${x.attempts_total} · Тестов: ${x.tests_unique}</small><small>Активность: ${dtm(x.last_active)}</small><button class="btn ghost" data-u="${x.uid}">Управление</button></div>`).join('')}</div>`:'<p class="mut">Никого не найдено.</p>';
+ $('#alist').onclick=e=>{const h=e.target.closest('[data-s]'),b=e.target.closest('[data-u]');if(h){const k=h.dataset.s;AD.dir=AD.sort===k?-AD.dir:(k==='full_name'||k==='rank'?1:-1);AD.sort=k;drawList()}else if(b)userModal(b.dataset.u)}}
+async function userModal(uid){
+ const u=AD.rows.find(x=>x.uid===uid);if(!u)return;
+ const [at,ts]=await Promise.all([sb.from('attempts').select('id,test_id,title,mode,percent,total,correct_count,seconds,created_at,tests(title)').eq('user_id',uid).order('created_at',{ascending:false}),sb.from('tests').select('id,title').order('created_at')]);
+ if(at.error||ts.error)return toast((at.error||ts.error).message);
+ let w=$('#um');if(!w){w=document.createElement('div');w.id='um';w.className='modal';document.body.append(w)}
+ w.innerHTML=`<div class="card box big"><div class="row"><div><b>${esc(u.full_name||u.mail)}</b><small>${esc(u.mail)}</small></div><button class="btn ghost" data-x="close">✕</button></div><h4>Роль</h4><div class="row"><select id="ur"><option value="student">Студент</option><option value="admin">Администратор</option></select><button class="btn" data-x="role">Сохранить роль</button></div><h4>Попытки (${at.data.length})</h4>${at.data.map(a=>`<div class="item"><div><b>${esc(a.tests?.title||a.title||'Пробный экзамен')}</b><small>${MODE[a.mode]||esc(a.mode)} · ${dtm(a.created_at)} · ${a.correct_count}/${a.total}</small></div><input type="number" min="0" max="100" value="${a.percent}" data-p="${a.id}" style="width:72px"><button class="btn ghost" data-x="pct" data-id="${a.id}">OK</button><button class="btn ghost" data-x="del" data-id="${a.id}">🗑</button></div>`).join('')||'<p class="mut">Попыток нет.</p>'}<div class="row"><button class="btn ghost" data-x="low">Удалить попытки ниже 50%</button><button class="btn ghost" data-x="err">Очистить историю ошибок</button></div><h4>Сброс прогресса</h4><div class="row"><select id="ut"><option value="">Весь прогресс (все тесты)</option>${ts.data.map(t=>`<option value="${t.id}">${esc(t.title)}</option>`).join('')}</select><button class="btn" data-x="reset">Сбросить</button></div></div>`;
+ $('#ur').value=u.user_role;
+ w.onclick=async e=>{const b=e.target.closest('[data-x]');if(e.target===w||(b&&b.dataset.x==='close')){w.remove();return}if(!b)return;const x=b.dataset.x,id=b.dataset.id;let r;
+  if(x==='role'){const v=$('#ur').value;if(uid===user.id&&v!=='admin')return toast('Нельзя снять роль администратора с самого себя');if(!await ask('Изменить роль пользователя?'))return;r=await sb.from('profiles').update({role:v}).eq('id',uid)}
+  else if(x==='pct'){const p=Math.max(0,Math.min(100,+w.querySelector('[data-p="'+id+'"]').value||0)),a=at.data.find(z=>z.id===id);r=await sb.from('attempts').update({percent:p,correct_count:Math.round(p*a.total/100)}).eq('id',id)}
+  else if(x==='del'){if(!await ask('Удалить эту попытку?'))return;r=await sb.from('attempts').delete().eq('id',id)}
+  else if(x==='low'){if(!await ask('Удалить все попытки с результатом ниже 50%?'))return;r=await sb.from('attempts').delete().eq('user_id',uid).lt('percent',50)}
+  else if(x==='err'){if(!await ask('Очистить историю ошибок студента?'))return;r=await sb.from('mistakes').delete().eq('user_id',uid)}
+  else if(x==='reset'){const t=$('#ut').value;if(!await ask(t?'Сбросить прогресс по выбранному тесту?':'Полностью сбросить весь прогресс студента?'))return;const A=sb.from('attempts').delete().eq('user_id',uid),M=sb.from('mistakes').delete().eq('user_id',uid);r=await(t?A.eq('test_id',t):A);if(!r.error)r=await(t?M.eq('test_id',t):M)}
+  if(r&&r.error)return toast(r.error.message);toast('Готово');await adminLoad();drawList();drawLive();userModal(uid)}}
 async function vErrors(){
- const {data,error}=await sb.from('mistakes').select('*,questions(text,options,correct),tests(title)').order('updated_at',{ascending:false});if(error)throw error;
+ const {data,error}=await sb.from('mistakes').select('*,questions(text,options,correct),tests(title)').eq('user_id',user.id).order('updated_at',{ascending:false});if(error)throw error;
  const G={};for(const x of data){const g=G[x.test_id]=G[x.test_id]||{t:x.tests?.title,o:[],f:0};if(x.status==='open')g.o.push(x);else g.f++}
  $('#main').innerHTML=`<h1>Результаты тестов</h1>${tabs('e')}${Object.entries(G).map(([i,g])=>`<div class="card"><div class="row"><div><b>${esc(g.t)}</b><small>Ошибок: ${g.o.length} · Исправлено: ${g.f}</small></div>${g.o.length?`<a class="btn" href="#run/${i}/e">Повторить ошибки</a>`:''}</div>${g.o.map(x=>`<div class="item"><div>${esc(x.questions.text)}<small>Правильный ответ: ${LET[x.questions.correct]}) ${esc(x.questions.options[x.questions.correct])} · ошибок: ${x.wrong_count}</small></div></div>`).join('')}</div>`).join('')||'<div class="card"><p class="mut">Ошибок пока нет. Неправильные и пропущенные вопросы появятся здесь после прохождения теста.</p></div>'}`}
 async function vResults(){
- const {data,error}=await sb.from('attempts').select('*,tests(title)').order('created_at',{ascending:false});if(error)throw error;
+ const {data,error}=await sb.from('attempts').select('*,tests(title)').eq('user_id',user.id).order('created_at',{ascending:false});if(error)throw error;
  $('#main').innerHTML=`<h1>Результаты тестов</h1>${tabs('r')}<div class="card">${data.map(x=>`<div class="item"><div><b>${esc(x.tests?.title||x.title||'Пробный экзамен')}</b><small>${dt(x.created_at)} · ${x.mode==='train'?'тренировка':x.mode==='mock'?'пробный экзамен':'экзамен'} · ${fmt(x.seconds)} · ${x.correct_count}/${x.total}</small></div><span class="pill ${x.percent>=75?'okp':'wp'}">${x.percent}%</span><a class="btn ghost" href="#result/${x.id}">Просмотр</a></div>`).join('')||'<p class="mut">Результатов пока нет.</p>'}</div>`}
 async function vProfile(){
- const m=user.user_metadata||{},{data}=await sb.from('attempts').select('percent,seconds'),n=data?.length||0;
- $('#main').innerHTML=`<h1>Профиль</h1><div class="card"><div class="av">${esc((m.full_name||user.email)[0].toUpperCase())}</div><input id="n" placeholder="Имя и фамилия" value="${esc(m.full_name)}"><input id="g" placeholder="Группа" value="${esc(m.group)}"><small>${esc(user.email)}</small><div class="row"><button class="btn" id="sv">Сохранить</button><button class="btn ghost" id="lo">Выйти</button></div></div><div class="card"><div class="row"><div><b>Тёмная тема</b><small>Удобнее читать ночью</small></div><button class="btn ghost" id="th"></button></div></div><div class="card"><b>Общая статистика</b><p>Пройдено тестов: ${n} · Средний результат: ${n?Math.round(data.reduce((s,x)=>s+x.percent,0)/n):0}% · Время: ${fmt(data.reduce((s,x)=>s+x.seconds,0))}</p></div>`;
+ const m=user.user_metadata||{},{data}=await sb.from('attempts').select('percent,seconds').eq('user_id',user.id),n=data?.length||0;
+ $('#main').innerHTML=`<h1>Профиль</h1><div class="card"><div class="av">${esc((m.full_name||user.email)[0].toUpperCase())}</div><input id="n" placeholder="Имя и фамилия" value="${esc(m.full_name)}"><input id="g" placeholder="Группа" value="${esc(m.group)}"><small>${esc(user.email)}</small><div class="row"><button class="btn" id="sv">Сохранить</button><button class="btn ghost" id="lo">Выйти</button></div></div>${admin?'<a class="card" style="display:block;text-decoration:none;color:inherit" href="#admin"><b>🛡 Кабинет администратора</b><small>Рейтинг, активные сессии, управление студентами</small></a>':''}<div class="card"><div class="row"><div><b>Тёмная тема</b><small>Удобнее читать ночью</small></div><button class="btn ghost" id="th"></button></div></div><div class="card"><b>Общая статистика</b><p>Пройдено тестов: ${n} · Средний результат: ${n?Math.round(data.reduce((s,x)=>s+x.percent,0)/n):0}% · Время: ${fmt(data.reduce((s,x)=>s+x.seconds,0))}</p></div>`;
  $('#lo').onclick=()=>sb.auth.signOut();
  const th=$('#th'),paint=()=>th.textContent=document.documentElement.dataset.theme==='dark'?'☀️ Светлая':'🌙 Тёмная';paint();th.onclick=()=>{const d=document.documentElement.dataset.theme==='dark'?'light':'dark';document.documentElement.dataset.theme=d;try{localStorage.gos_theme=d}catch(e){}paint()};
- $('#sv').onclick=async()=>{const r=await sb.auth.updateUser({data:{full_name:$('#n').value.trim(),group:$('#g').value.trim()}});if(r.error)toast(r.error.message);else{user=r.data.user;toast('Сохранено')}}}
+ $('#sv').onclick=async()=>{const r=await sb.auth.updateUser({data:{full_name:$('#n').value.trim(),group:$('#g').value.trim()}});if(r.error)toast(r.error.message);else{user=r.data.user;await sb.from('profiles').update({name:$('#n').value.trim(),grp:$('#g').value.trim()}).eq('id',user.id);toast('Сохранено')}}}
 document.head.insertAdjacentHTML('beforeend','<style>.modes{display:grid;grid-template-columns:1fr 1fr;gap:12px}.tmr.low{background:#fee2e2;color:#dc2626}@media(max-width:700px){.modes{grid-template-columns:1fr}}</style>');
 function pickMode(id,title,err,nOpen,c){
  const sf=err?'-e':'',p=!err&&c&&(c.sel||c.cnt)?'@'+c.sel+(c.cnt?'~'+c.cnt:''):'',more=!err&&nOpen?`<a class="btn ghost" href="#run/${id}/e">Повторить ошибки (${nOpen})</a>`:'';
