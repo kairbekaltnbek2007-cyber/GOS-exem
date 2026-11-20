@@ -68,6 +68,7 @@ async function save(){
   for(let a=0;a<gone.length;a+=100){r=await sb.from('questions').delete().in('id',gone.slice(a,a+100));if(r.error)throw r.error}
   draft=null;toast('Тест сохранён');location.hash='#tests'}catch(e){msg.textContent='Не удалось сохранить: '+e.message}}
 const SZ=200,MOCK_SEC=45;
+const shuf=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
 async function getQIds(tids){let all=[],a=0;for(;;){let q=sb.from('questions').select('id,test_id').order('id').range(a,a+999);if(tids)q=q.in('test_id',tids);const r=await q;if(r.error)throw r.error;all=all.concat(r.data);if(r.data.length<1000)break;a+=1000}return all}
 async function getQsByIds(ids){let o=[];for(let a=0;a<ids.length;a+=100){const r=await sb.from('questions').select('*').in('id',ids.slice(a,a+100));if(r.error)throw r.error;o=o.concat(r.data)}const M=Object.fromEntries(o.map(x=>[x.id,x]));return ids.map(i=>M[i]||{id:i,test_id:null,text:'(вопрос удалён)',options:['—'],correct:0})}
 async function mockPool(src){if(src!=='done')return getQIds();const r=await sb.from('attempts').select('test_id').eq('user_id',user.id);if(r.error)throw r.error;const t=[...new Set((r.data||[]).map(x=>x.test_id).filter(Boolean))];return t.length?getQIds(t):[]}
@@ -95,8 +96,7 @@ async function vRun(id,mode0){
  const byId=Object.fromEntries(q.data.map(x=>[x.id,x])),resume=s&&s.qids&&s.qids.length&&s.qids.every(i=>byId[i]);
  let qs;
  if(resume)qs=s.qids.map(i=>byId[i]);
- else if(!err&&count&&count<pool.length){const a=pool.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}qs=a.slice(0,count).sort((x,y)=>x.pos-y.pos)}
- else qs=pool;
+ else{qs=shuf(pool);if(!err&&count&&count<pool.length)qs=qs.slice(0,count)}
  const qids=qs.map(x=>x.id);
  run=resume?{...s,flag:new Set(s.flag)}:{qids,ans:{},flag:new Set(),lock:{},i:0,t0:Date.now(),qt0:Date.now()};
  Object.assign(run,{id,key,mode:base,title:t.data.title+(part&&!err?` · вопросы ${(part-1)*SZ+1}–${Math.min(part*SZ,n)}`:'')+(!err&&qs.length<pool.length?` · ${qs.length} из ${pool.length}`:''),qs,done:false});rdr()}
